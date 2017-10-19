@@ -30,13 +30,14 @@ def getSingleImage(filename):
     # grayscale = 0.2989 * r + 0.5870 * g + 0.1140 * b
 
 def getAllDirImages(dirname):
-    return [getSingleImage(os.path.join(dirname,filename)) for filename in os.listdir(dirname) if filename.endswith("jpg")] # if os.path.isfile(filename)
+    return [getSingleImage(os.path.join(dirname,filename)) for filename in os.listdir(dirname) if (filename.endswith("jpg") and not filename.startswith("."))] # if os.path.isfile(filename)
 
 # $1 iimages
 
 # Do all sums to get ii for a single image
 # data is the pixel values for an image
 def constructIntegralImage(data):
+    print("iimage")
     result = [data[0]]
     # Consider data to be a list of rows,
     # Rows descend down the image
@@ -117,6 +118,7 @@ def allTwoBoxFeatures(xLen, yLen):
     for xWindow in range(2, xLen, 2):
     #for xWindow in range(2, xLen, 1):
         for yWindow in range(2, yLen, 2):
+            print("xy:", xWindow, yWindow)
         #for yWindow in range(2, yLen, 1):
             result += slideTwoBoxesAcross(xLen, yLen, xWindow, yWindow)
     return result
@@ -124,7 +126,7 @@ def allTwoBoxFeatures(xLen, yLen):
 def computeFeature(iimages, featuretbl, imageIndex, featureIndex):
     image = iimages[imageIndex]
     feature = featuretbl[featureIndex]
-    print(feature)
+    
     x1 = feature[0]
     y1 = feature[1]
     x2 = feature[2]
@@ -170,7 +172,7 @@ def predictAgg(iimages, featuretbl, imageIndex, boostedClassifier, returnScaledV
 # $4 adaboost
 
 # Best weak learner on the training data we currently care about
-def bestLearner(iimages, iindices, imageLabels, featuretbl, weight):
+def bestLearner(iimages, iindices, imageLabels, featuretbl, weights):
     iimages = [iimages[i] for i in iindices]
     ntrain = len(iimages)
     assert ntrain == len(imageLabels)
@@ -187,7 +189,7 @@ def bestLearner(iimages, iindices, imageLabels, featuretbl, weight):
         allFeatureValues.append(eachImage)
     everyFeaturesBest = []
     for jfeat in range(nfeat):
-        unsorted = numpy.array(allFeatureValues[jfeat])
+        unsorted = np.array(allFeatureValues[jfeat])
         permutation = np.argsort(unsorted)
 
         permPosWeights = [(weights[index] if imageLabels[index] == 1 else 0) for index in permutation]
@@ -210,12 +212,12 @@ def bestLearner(iimages, iindices, imageLabels, featuretbl, weight):
                 ordinaryPolarity = True
 
             bestError /= ntrain
-            imageErrors.append(bestError, jim, ordinaryPolarity, jfeat)
+            imageErrors.append([bestError, jim, ordinaryPolarity, jfeat])
 
         bestErrorIndex = np.argsort([x[0] for x in imageErrors])[0]
         jthresh = imageErrors[bestErrorIndex][0]
         thresh = (unsorted[permutation[jthresh]] + unsorted[permutation[jthresh+1]]) * float(1)/2
-        everyFeaturesBest.append(imageErrors[bestErrorIndex], thresh)
+        everyFeaturesBest.append([imageErrors[bestErrorIndex], thresh])
 
     bestClassifierIndex = np.argsort([x[0] for x in everyFeaturesBest])[0]
     result = everyFeaturesBest[bestClassifierIndex] # [err, splitimageindex, polarity, feature index] ,  thresh *@ 1
@@ -261,6 +263,9 @@ def aggCatchAll(iimages, labels, featuretbl, boostedClassifier):
     return [fpr, theta, ppIndices]
 
 def pickleWrapper(request=None, filename="classifier.pkl"):
+    if not filename.endswith(".pkl"):
+        filename += ".pkl"
+
     if request:
         with open(filename, "wb") as output:
             pkl.dump(request, output)
@@ -283,7 +288,11 @@ def main():
         print(trainNegative)
 
     # ideally this is feature1tbl
-    featuretbl = allTwoBoxFeatures(64,64)
+    #if not featuretbl = pickleWrapper(None, "featuretbl"):
+    
+    #featuretbl = allTwoBoxFeatures(64,64)
+    #pickleWrapper(featuretbl, "featuretbl")
+    featuretbl = pickleWrapper(None, "featuretbl")
 
     # element of feature1tbl is 2 adjacent rectangles
     # element of feature2tbl is 3 adjacent rectangles
@@ -296,18 +305,23 @@ def main():
 
     trainData = trainPositive + trainNegative
     trainLabels = [1 for _ in range(len(trainPositive))] + [-1 for _ in range(len(trainNegative))]
-    iimages = [constructIntegralImage(elem) for elem in trainData]
+
+    #iimages = [constructIntegralImage(elem) for elem in trainData]
+    #pickleWrapper(iimages, "iimages")
+    iimages = pickleWrapper(None, "iimages")
+    
     iindices = list(range(len(iimages)))
 
     for _ in range(4):
         ntrain = len(iindices)
         scalar = float(1)/ntrain
-        weight = [scalar for _ in range(ntrain)]
+        weights = [scalar for _ in range(ntrain)]
         fpr = fprSufficient + 1
         boostedAgg = []
         while fpr > fprSufficient:
 
-            weak = bestLearner(iimages, iindices, trainLabels, featuretbl, weight)
+            weak = bestLearner(iimages, iindices, trainLabels, featuretbl, weights)
+            print(weak)
             error = weak[0]
             threshold = weak[1]
             ordinaryPolarity = weak[2]
