@@ -215,7 +215,7 @@ def bestLearner(iimages, iindices, imageLabels, featuretbl, weights):
             imageErrors.append([bestError, jim, ordinaryPolarity, jfeat])
 
         bestErrorIndex = np.argsort([x[0] for x in imageErrors])[0]
-        jthresh = imageErrors[bestErrorIndex][0]
+        jthresh = imageErrors[bestErrorIndex][1]
         thresh = (unsorted[permutation[jthresh]] + unsorted[permutation[jthresh+1]]) * float(1)/2
         everyFeaturesBest.append([imageErrors[bestErrorIndex], thresh])
 
