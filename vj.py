@@ -126,7 +126,7 @@ def allTwoBoxFeatures(xLen, yLen):
 def computeFeature(iimages, featuretbl, imageIndex, featureIndex):
     image = iimages[imageIndex]
     feature = featuretbl[featureIndex]
-    
+
     x1 = feature[0]
     y1 = feature[1]
     x2 = feature[2]
@@ -270,9 +270,12 @@ def pickleWrapper(request=None, filename="classifier.pkl"):
         with open(filename, "wb") as output:
             pkl.dump(request, output)
     else:
-        with open(filename, "rb") as output:
-            result = pkl.load(output)
-            return result
+        try:
+            with open(filename, "rb") as output:
+                result = pkl.load(output)
+                return result
+        except IOError:
+            return False
 
 
 def main():
@@ -289,10 +292,11 @@ def main():
 
     # ideally this is feature1tbl
     #if not featuretbl = pickleWrapper(None, "featuretbl"):
-    
-    #featuretbl = allTwoBoxFeatures(64,64)
-    #pickleWrapper(featuretbl, "featuretbl")
+
     featuretbl = pickleWrapper(None, "featuretbl")
+    if featuretbl == False:
+        featuretbl = allTwoBoxFeatures(64,64)
+        pickleWrapper(featuretbl, "featuretbl")
 
     # element of feature1tbl is 2 adjacent rectangles
     # element of feature2tbl is 3 adjacent rectangles
@@ -306,10 +310,11 @@ def main():
     trainData = trainPositive + trainNegative
     trainLabels = [1 for _ in range(len(trainPositive))] + [-1 for _ in range(len(trainNegative))]
 
-    #iimages = [constructIntegralImage(elem) for elem in trainData]
-    #pickleWrapper(iimages, "iimages")
     iimages = pickleWrapper(None, "iimages")
-    
+    if iimages == False:
+        iimages = [constructIntegralImage(elem) for elem in trainData]
+        pickleWrapper(iimages, "iimages")
+
     iindices = list(range(len(iimages)))
 
     for _ in range(4):
