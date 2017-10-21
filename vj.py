@@ -210,9 +210,13 @@ def bestLearner(iimages, iindices, imageLabels, featuretbl, weights):
 
         cachePositive = sum(permPosWeights)
         cacheNegative = sum(permNegWeights)
+        leftPositive = 0
+        leftNegative = 0
         for jim in range(ntrain):
-            leftPositive = sum(permPosWeights[:jim+1])
-            leftNegative = sum(permNegWeights[:jim+1])
+            leftPositive += permPosWeights[jim]
+            #leftPositive = sum(permPosWeights[:jim+1])
+            leftNegative +=permNegWeights[jim]
+            #leftNegative = sum(permNegWeights[:jim+1])
             rightPositive = cachePositive - leftPositive
             #rightPositive = sum(permPosWeights[jim+1:])
             rightNegative = cacheNegative - leftNegative
@@ -225,7 +229,7 @@ def bestLearner(iimages, iindices, imageLabels, featuretbl, weights):
                 bestError = leftPositive + rightNegative
                 ordinaryPolarity = True
 
-            bestError /= flntrain
+            #bestError /= flntrain
             imageErrors.append([bestError, jim, ordinaryPolarity, jfeat])
 
         bestErrorSort = np.argsort([x[0] for x in imageErrors])
@@ -264,6 +268,7 @@ def updateWeights(weights, error, alpha, thresh, ordinaryPolarity, iimages, iind
     for i in range(ntrain):
         prediction = predictWeak(iimages, featuretbl, i, featureIndex, thresh, ordinaryPolarity)
         correction = prediction * (1 if labels[i] == prediction else -1)
+        print(correction, math.exp(-alpha * correction) / z)
         result.append(weights[i] * math.exp(-alpha * correction) / z )
     return result
 
@@ -308,15 +313,15 @@ def pickleWrapper(request=None, filename="classifier.pkl"):
 def main():
     dev = True
 
-    trainLabels = [1 for _ in range((50 if dev else 2000))] + [-1 for _ in range((50 if dev else 2000))]
+    trainLabels = [1 for _ in range((150 if dev else 2000))] + [-1 for _ in range((150 if dev else 2000))]
     iimages = pickleWrapper(None, "iimages")
 
     if iimages == False:
         trainPositive = getAllDirImages("data/faces")
         trainNegative = getAllDirImages("data/background")
         if dev:
-            trainPositive = trainPositive[:50]
-            trainNegative = trainNegative[:50]
+            trainPositive = trainPositive[:150]
+            trainNegative = trainNegative[:150]
         trainData = trainPositive + trainNegative
         trainLabels = [1 for _ in range(len(trainPositive))] + [-1 for _ in range(len(trainNegative))]
 
@@ -345,9 +350,11 @@ def main():
 
     for createCascadeIndex in range(4):
         print("On cascade", createCascadeIndex)
+
         ntrain = len(iindices)
         scalar = float(1)/ntrain
         weights = [scalar for _ in range(ntrain)]
+        print("Weights are", weights)
         fpr = fprSufficient + 1
         boostedAgg = []
         while fpr > fprSufficient:
@@ -363,6 +370,7 @@ def main():
             boostedAgg.append([[featureIndex, threshold, ordinaryPolarity], alpha])
 
             aggInfo = aggCatchAll(iimages, iindices, trainLabels, featuretbl, boostedAgg)
+            print(aggInfo)
             fpr = aggInfo[0]
             if fpr > fprSufficient:
                 theta = aggInfo[1]
