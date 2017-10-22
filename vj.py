@@ -294,7 +294,7 @@ def aggCatchAll(iimages, iindices, labels, featuretbl, boostedClassifier):
     fpr = nfp / npp
     return [fpr, theta, ppIndices]
 
-def pickleWrapper(request=None, filename="classifier.pkl"):
+def pickleWrapper(filename, request=None):
     if not filename.endswith(".pkl"):
         filename += ".pkl"
 
@@ -314,7 +314,7 @@ def main():
     dev = True
 
     trainLabels = [1 for _ in range((150 if dev else 2000))] + [-1 for _ in range((150 if dev else 2000))]
-    iimages = pickleWrapper(None, "iimages")
+    iimages = pickleWrapper("iimages")
 
     if iimages == False:
         trainPositive = getAllDirImages("data/faces")
@@ -326,7 +326,7 @@ def main():
         trainLabels = [1 for _ in range(len(trainPositive))] + [-1 for _ in range(len(trainNegative))]
 
         iimages = [constructIntegralImage(elem) for elem in trainData]
-        pickleWrapper(iimages, "iimages")
+        pickleWrapper("iimages", iimages)
 
     iindices = list(range(len(iimages)))
 
@@ -334,10 +334,10 @@ def main():
     # ideally this is feature1tbl
     #if not featuretbl = pickleWrapper(None, "featuretbl"):
 
-    featuretbl = pickleWrapper(None, "featuretbl")
+    featuretbl = pickleWrapper("featuretbl")
     if featuretbl == False:
         featuretbl = allTwoBoxFeatures(64,64)
-        pickleWrapper(featuretbl, "featuretbl")
+        pickleWrapper("featuretbl", featuretbl)
 
     # element of feature1tbl is 2 adjacent rectangles
     # element of feature2tbl is 3 adjacent rectangles
@@ -378,7 +378,7 @@ def main():
                 iindices = aggInfo[2]
                 # break
 
-    pickleWrapper(cascade)
+    pickleWrapper("cascade", cascade)
 
 if __name__ == "__main__":
     main()
