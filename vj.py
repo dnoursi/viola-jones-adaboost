@@ -157,7 +157,7 @@ def predictWeak(iimages, featuretbl, imageIndex, featureIndex, threshold, ordina
 
 # given: a specific image, and one boosted classifier, which is a list of [weak-stump, alpha]
 # returns: either every vote from each weak classifier,  or just \pm 1
-def predictAgg(iimages, featuretbl, imageIndex, boostedClassifier, returnScaledVotes=False):
+def predictAgg(iimages, featuretbl, imageIndex, boostedClassifier):
     scaledVotes = []
     for elem in boostedClassifier:
         classifier = elem[0]
@@ -167,11 +167,11 @@ def predictAgg(iimages, featuretbl, imageIndex, boostedClassifier, returnScaledV
         polarity = classifier[2]
         prediction = predictWeak(iimages, featuretbl, imageIndex, featureIndex, threshold, polarity)
         scaledVotes.append(prediction * alpha)
-    result = [ (1 if sum(scaledVotes) >= 0 else -1)]
-    if returnScaledVotes:
-        result = [scaledVotes] + result
+    ssv = sum(scaledVotes)
+    #result = [ ssv, (1 if ssv >= 0 else -1)]
+    #return result
+    return ssv
 
-    return result
 # $4 adaboost
 
 # Best weak learner on the training data we currently care about
@@ -233,10 +233,7 @@ def bestLearner(iimages, iindices, imageLabels, featuretbl, weights):
             imageErrors.append([bestError, jim, ordinaryPolarity, jfeat])
 
         bestErrorSort = np.argsort([x[0] for x in imageErrors])
-        #print(bestErrorSort)
         bestErrorIndex = bestErrorSort[0]
-        #print(bestErrorIndex)
-        bestErrorIndex = int(bestErrorIndex)
         #print(bestErrorIndex)
         jthresh = imageErrors[bestErrorIndex][1]
         thresh = (unsorted[permutation[jthresh]] + unsorted[permutation[jthresh+1]]) * float(1)/2
@@ -278,20 +275,23 @@ def aggCatchAll(iimages, iindices, labels, featuretbl, boostedClassifier):
     iimages = [iimages[i] for i in iindices]
     labels = [labels[i] for i in iindices]
     ntrain = len(labels)
-    predictions = [predictAgg(iimages, featuretbl, i, boostedClassifier, True) for i in range(ntrain)]
-    assert ntrain == len(predictions)
+    predictions = [predictAgg(iimages, featuretbl, i, boostedClassifier) for i in iindices]
+    assert ntrain == len(predictions) == len(iindices)
 
     # pp aka predicted positive
     # tp aka true positive
-    tpIndices = [i for i in range(ntrain) if labels[i] == 1]
-    tpPredictions = [predictions[i][1] for i in tpIndices]
+    tpIndices = [i for i in iindices if labels[i] == 1]
+    tpPredictions = [predictions[i] for i in range(ntrain)]
     # least confident
     confidenceSort = np.argsort(tpPredictions)
     lcPositive = confidenceSort[0]
     theta = tpPredictions[lcPositive] - abs(tpPredictions[lcPositive]) * .04
-    ppIndices = [i for i in tpIndices if predictions[i][1] > theta]
-    nfp = sum([ 1 for i in ppIndices if labels[i] != 1])
-    fpr = nfp / len(ppIndices)
+
+    ppIndices = [ i for i in iindices if predictions[i] > theta ]
+    npp = len(ppIndices)
+    nfp = len([ i for i in ppIndices if labels[i] != 1])
+    # len almost equiv to sum
+    fpr = nfp / npp
     return [fpr, theta, ppIndices]
 
 def pickleWrapper(request=None, filename="classifier.pkl"):
