@@ -126,7 +126,7 @@ def allTwoBoxFeatures(xLen, yLen):
             result += slideTwoBoxesAcross(xLen, yLen, xWindow, yWindow, 4, 4)
     return result
 
-def computeFeature(iimages, featuretbl, imageIndex, featureIndex):
+def computeFeature(iimages, imageIndex, featuretbl, featureIndex):
     image = iimages[imageIndex]
     feature = featuretbl[featureIndex]
 
@@ -144,12 +144,17 @@ def computeFeature(iimages, featuretbl, imageIndex, featureIndex):
 
     return box2 - box1
 
+# general args: [iimages, labels, iindices], [featuretbl, featureindex], thresh, polarity
 # $3 prediction
 
 # Ordinarypolarity is a bool
 # given: a specific image, a [feature, threshold, polarity] aka weak-stump-classifier
 # returns: \pm 1, a label prediction
-def predictWeak(iimages, featuretbl, imageIndex, featureIndex, threshold, ordinaryPolarity):
+def predictWeak(iimages, imageIndex, featuretbl, classifier):
+    featureIndex = classifier[0]
+    threshold = classifier[1]
+    polarity = classifier[2]
+
     rawValue = computeFeature(iimages, featuretbl, imageIndex, featureIndex)
     result = 1 if rawValue > threshold else -1
     result *= 1 if ordinaryPolarity else -1
@@ -157,7 +162,7 @@ def predictWeak(iimages, featuretbl, imageIndex, featureIndex, threshold, ordina
 
 # given: a specific image, and one boosted classifier, which is a list of [weak-stump, alpha]
 # returns: either every vote from each weak classifier,  or just \pm 1
-def predictAgg(iimages, featuretbl, imageIndex, boostedClassifier):
+def predictAgg(iimages, imageIndex, featuretbl, boostedClassifier):
     scaledVotes = []
     for elem in boostedClassifier:
         classifier = elem[0]
@@ -165,7 +170,7 @@ def predictAgg(iimages, featuretbl, imageIndex, boostedClassifier):
         featureIndex = classifier[0]
         threshold = classifier[1]
         polarity = classifier[2]
-        prediction = predictWeak(iimages, featuretbl, imageIndex, featureIndex, threshold, polarity)
+        prediction = predictWeak(iimages, imageIndex, featuretbl, classifier)
         scaledVotes.append(prediction * alpha)
     ssv = sum(scaledVotes)
     #result = [ ssv, (1 if ssv >= 0 else -1)]
@@ -175,34 +180,38 @@ def predictAgg(iimages, featuretbl, imageIndex, boostedClassifier):
 # $4 adaboost
 
 # Best weak learner on the training data we currently care about
-def bestLearner(iimages, iindices, imageLabels, featuretbl, weights):
-    iimages = [iimages[i] for i in iindices]
-    ntrain = len(iimages)
-    assert ntrain == len(imageLabels)
+def bestLearner(iimages, labels, iindices, featuretbl, weights):
+    ntrain = len(iindices)
+    assert ntrain == len(weights)
+    flntrain = float(ntrain)
     nfeat = len(featuretbl)
+
     # Find each features maximum utility, then pick the best of those
     allFeatureValues = []
     # list of lists for each features best shot at a weak learner
     # contain error, value of j (separator), theta (threshold), ordinary polarity (bool)
-    print(" In best learner, size of features is", nfeat)
+    print("In best learner, size of features is", nfeat)
+
+    # Compute everything
     for jfeat in range(nfeat):
         if jfeat % 2000 == 0:
-            print("Feature Index for finding Best Learner", jfeat)
+            print("Feature index for finding Best Learner", jfeat)
         eachImage = []
-        for jim in range(ntrain):
-            vl = computeFeature(iimages, featuretbl, jim, jfeat)
+        for jim in iindices:
+            vl = computeFeature(iimages, jim, featuretbl, jfeat)
             eachImage.append(vl)
         allFeatureValues.append(eachImage)
     everyFeaturesBest = []
-    flntrain = float(ntrain)
+
+    # For each feature: 1 sort images by performance, then 2 select threshold/polarity
     for jfeat in range(nfeat):
         if jfeat % 2000 == 0:
             print("Feature Index for finding Best Learner", jfeat)
         unsorted = np.array(allFeatureValues[jfeat])
         permutation = np.argsort(unsorted)
 
-        permPosWeights = [(weights[index] if imageLabels[index] == 1 else 0) for index in permutation]
-        permNegWeights = [(weights[index] if imageLabels[index] == -1 else 0) for index in permutation]
+        permPosWeights = [(weights[index] if labels[index] == 1 else 0) for index in permutation]
+        permNegWeights = [(weights[index] if labels[index] == -1 else 0) for index in permutation]
         permPosWeights = np.array(permPosWeights)
         permNegWeights = np.array(permNegWeights)
 
@@ -254,16 +263,20 @@ def bestLearner(iimages, iindices, imageLabels, featuretbl, weights):
 def computeAlpha(errorValue):
     return math.log((1 - errorValue) / errorValue) / 2
 
+#def updateWeights(weights, error, alpha, thresh, ordinaryPolarity, iimages, iindices, labels, featuretbl, featureIndex):
 # ordinary polarity is bool
-def updateWeights(weights, error, alpha, thresh, ordinaryPolarity, iimages, iindices, labels, featuretbl, featureIndex):
+def updateWeights(iimages, labels, iindices, featuretbl, weights, weak, alpha):
     ntrain = len(weights)
-    iimages = [iimages[i] for i in iindices]
-    assert ntrain == len(iimages) == len(labels)
+    #assert ntrain == len(iindices)
+    error = weak[0]
+    threshold = weak[1]
+    ordinaryPolarity = weak[2]
+    featureIndex = weak[3]
 
     z = 2 * ( error * (1 - error)) ** .5
     result = []
     for i in range(ntrain):
-        prediction = predictWeak(iimages, featuretbl, i, featureIndex, thresh, ordinaryPolarity)
+        prediction = predictWeak(iimages, i, featuretbl, [featureIndex, threshold, ordinaryPolarity])
         correction = prediction * (1 if labels[i] == prediction else -1)
         print(correction, math.exp(-alpha * correction) / z)
         result.append(weights[i] * math.exp(-alpha * correction) / z )
@@ -271,21 +284,19 @@ def updateWeights(weights, error, alpha, thresh, ordinaryPolarity, iimages, iind
 
 # Decide whether we're done boosting, and will move on in the cascade
 # aka: optiize theta satisfying DR=100%, then return theta and frp at this theta
-def aggCatchAll(iimages, iindices, labels, featuretbl, boostedClassifier):
-    iimages = [iimages[i] for i in iindices]
-    labels = [labels[i] for i in iindices]
-    ntrain = len(labels)
-    predictions = [predictAgg(iimages, featuretbl, i, boostedClassifier) for i in iindices]
-    assert ntrain == len(predictions) == len(iindices)
+def aggCatchAll(iimages, labels, iindices, featuretbl, boostedClassifier):
+    ntrain = len(iindices)
+    predictions = [predictAgg(iimages, i, featuretbl, boostedClassifier) for i in iindices]
+    assert ntrain == len(predictions)
 
     # pp aka predicted positive
     # tp aka true positive
     tpIndices = [i for i in iindices if labels[i] == 1]
-    tpPredictions = [predictions[i] for i in range(ntrain)]
+    tpPredictions = [predictions[i] for i in range(len(tpIndices))]
     # least confident
     confidenceSort = np.argsort(tpPredictions)
-    lcPositive = confidenceSort[0]
-    theta = tpPredictions[lcPositive] - abs(tpPredictions[lcPositive]) * .04
+    lcPositive = tpIndices[confidenceSort[0]]
+    theta = tpPredictions[lcPositive] - (abs(tpPredictions[lcPositive]) * .04)
 
     ppIndices = [ i for i in iindices if predictions[i] > theta ]
     npp = len(ppIndices)
@@ -308,7 +319,6 @@ def pickleWrapper(filename, request=None):
                 return result
         except IOError:
             return False
-
 
 def main():
     dev = True
@@ -359,17 +369,17 @@ def main():
         boostedAgg = []
         while fpr > fprSufficient:
 
-            weak = bestLearner(iimages, iindices, trainLabels, featuretbl, weights)
+            weak = bestLearner(iimages, trainLabels, iindices, featuretbl, weights)
             print(weak)
             error = weak[0]
             threshold = weak[1]
             ordinaryPolarity = weak[2]
             featureIndex = weak[3]
             alpha = computeAlpha(error)
-            weights = updateWeights(weights, error, alpha, threshold, ordinaryPolarity, iimages, iindices, trainLabels, featuretbl, featureIndex)
+            weights = updateWeights(iimages, labels, iindices, featuretbl, weights, weak, alpha):
             boostedAgg.append([[featureIndex, threshold, ordinaryPolarity], alpha])
 
-            aggInfo = aggCatchAll(iimages, iindices, trainLabels, featuretbl, boostedAgg)
+            aggInfo = aggCatchAll(iimages, trainLabels, iindices, featuretbl, boostedAgg)
             print(aggInfo)
             fpr = aggInfo[0]
             if fpr > fprSufficient:
