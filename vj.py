@@ -145,6 +145,7 @@ def computeFeature(iimages, imageIndex, featuretbl, featureIndex):
     return box2 - box1
 
 # general args: [iimages, labels, iindices], [featuretbl, featureindex], thresh, polarity
+
 # $3 prediction
 
 # Ordinarypolarity is a bool
@@ -155,9 +156,9 @@ def predictWeak(iimages, imageIndex, featuretbl, classifier):
     threshold = classifier[1]
     polarity = classifier[2]
 
-    rawValue = computeFeature(iimages, featuretbl, imageIndex, featureIndex)
-    result = 1 if rawValue > threshold else -1
-    result *= 1 if ordinaryPolarity else -1
+    rawValue = computeFeature(iimages, imageIndex, featuretbl, featureIndex)
+    result = (1 if rawValue >= threshold else -1)
+    result *= (1 if polarity else -1)
     return result
 
 # given: a specific image, and one boosted classifier, which is a list of [weak-stump, alpha]
@@ -211,6 +212,8 @@ def bestLearner(iimages, labels, iindices, featuretbl, weights):
         permutation = np.argsort(unsorted)
 
         permPosWeights = [(weights[index] if labels[index] == 1 else 0) for index in permutation]
+        pprime = [(weights[permutation[index]] if labels[permutation[index]] == 1 else 0) for index in range(len(permutation))]
+        assert permPosWeights == pprime
         permNegWeights = [(weights[index] if labels[index] == -1 else 0) for index in permutation]
         permPosWeights = np.array(permPosWeights)
         permNegWeights = np.array(permNegWeights)
@@ -224,7 +227,7 @@ def bestLearner(iimages, labels, iindices, featuretbl, weights):
         for jim in range(ntrain):
             leftPositive += permPosWeights[jim]
             #leftPositive = sum(permPosWeights[:jim+1])
-            leftNegative +=permNegWeights[jim]
+            leftNegative += permNegWeights[jim]
             #leftNegative = sum(permNegWeights[:jim+1])
             rightPositive = cachePositive - leftPositive
             #rightPositive = sum(permPosWeights[jim+1:])
@@ -245,14 +248,13 @@ def bestLearner(iimages, labels, iindices, featuretbl, weights):
         bestErrorIndex = bestErrorSort[0]
         #print(bestErrorIndex)
         jthresh = imageErrors[bestErrorIndex][1]
-        thresh = (unsorted[permutation[jthresh]] + unsorted[permutation[jthresh+1]]) * float(1)/2
+        thresh = (unsorted[permutation[jthresh]])#+ unsorted[permutation[jthresh+1]]) * float(1)/2
         everyFeaturesBest.append([imageErrors[bestErrorIndex], thresh])
 
     print(everyFeaturesBest)
     bestClassifierSort = np.argsort([x[0][0] for x in everyFeaturesBest])
     bestClassifierIndex = bestClassifierSort[0]
     print(bestClassifierIndex)
-    bestClassifierIndex= int(bestClassifierIndex)
 
     result = everyFeaturesBest[bestClassifierIndex] # [err, splitimageindex, polarity, feature index] ,  thresh *@ 1
     result.append(result[0][2]) # polarity *@ 2
@@ -267,19 +269,24 @@ def computeAlpha(errorValue):
 # ordinary polarity is bool
 def updateWeights(iimages, labels, iindices, featuretbl, weights, weak, alpha):
     ntrain = len(weights)
+    assert ntrain == len(iindices)
+    print(sum(weights))
+    assert abs(sum(weights) - 1) < .04
     #assert ntrain == len(iindices)
     error = weak[0]
     threshold = weak[1]
     ordinaryPolarity = weak[2]
     featureIndex = weak[3]
 
-    z = 2 * ( error * (1 - error)) ** .5
+    z = 2 * (( error * (1 - error)) ** .5)
     result = []
     for i in range(ntrain):
-        prediction = predictWeak(iimages, i, featuretbl, [featureIndex, threshold, ordinaryPolarity])
-        correction = prediction * (1 if labels[i] == prediction else -1)
-        print(correction, math.exp(-alpha * correction) / z)
-        result.append(weights[i] * math.exp(-alpha * correction) / z )
+        prediction = predictWeak(iimages, iindices[i], featuretbl, [featureIndex, threshold, ordinaryPolarity])
+        correction = (1 if labels[iindices[i]] != prediction else -1)
+        print("Update weights: predicgtion", prediction)
+        result.append(weights[i] * math.exp(alpha * correction) / z )
+    print(sum(result))
+    assert abs(sum(result) - 1) < .04
     return result
 
 # Decide whether we're done boosting, and will move on in the cascade
@@ -287,6 +294,8 @@ def updateWeights(iimages, labels, iindices, featuretbl, weights, weak, alpha):
 def aggCatchAll(iimages, labels, iindices, featuretbl, boostedClassifier):
     ntrain = len(iindices)
     predictions = [predictAgg(iimages, i, featuretbl, boostedClassifier) for i in iindices]
+    print("Agg catch all: predictions", predictions)
+    print("Agg catch all: labels at iindices", [labels[i] for i in iindices])
     assert ntrain == len(predictions)
 
     # pp aka predicted positive
@@ -295,6 +304,7 @@ def aggCatchAll(iimages, labels, iindices, featuretbl, boostedClassifier):
     tpPredictions = [predictions[i] for i in range(len(tpIndices))]
     # least confident
     confidenceSort = np.argsort(tpPredictions)
+    print(confidenceSort, tpIndices, "oof")
     lcPositive = tpIndices[confidenceSort[0]]
     theta = tpPredictions[lcPositive] - (abs(tpPredictions[lcPositive]) * .04)
 
@@ -322,32 +332,38 @@ def pickleWrapper(filename, request=None):
 
 def main():
     dev = True
+    devSize = 160
 
-    trainLabels = [1 for _ in range((150 if dev else 2000))] + [-1 for _ in range((150 if dev else 2000))]
-    iimages = pickleWrapper("iimages")
+    trainLabels = [1 for _ in range((devSize if dev else 2000))] + [-1 for _ in range((devSize if dev else 2000))]
 
+    pickleName = "iimages"
+    iimages = pickleWrapper(pickleName)
     if iimages == False:
         trainPositive = getAllDirImages("data/faces")
         trainNegative = getAllDirImages("data/background")
         if dev:
-            trainPositive = trainPositive[:150]
-            trainNegative = trainNegative[:150]
+            trainPositive = trainPositive[:devSize]
+            trainNegative = trainNegative[:devSize]
         trainData = trainPositive + trainNegative
         trainLabels = [1 for _ in range(len(trainPositive))] + [-1 for _ in range(len(trainNegative))]
 
         iimages = [constructIntegralImage(elem) for elem in trainData]
-        pickleWrapper("iimages", iimages)
+        pickleWrapper(pickleName, iimages)
 
     iindices = list(range(len(iimages)))
-
 
     # ideally this is feature1tbl
     #if not featuretbl = pickleWrapper(None, "featuretbl"):
 
-    featuretbl = pickleWrapper("featuretbl")
+    pickleName = "featuretbl"
+    featuretbl = pickleWrapper(pickleName)
     if featuretbl == False:
         featuretbl = allTwoBoxFeatures(64,64)
-        pickleWrapper("featuretbl", featuretbl)
+        pickleWrapper(pickleName, featuretbl)
+
+    devSize = len(featuretbl) # 40
+    if dev:
+        featuretbl = featuretbl[:40]
 
     # element of feature1tbl is 2 adjacent rectangles
     # element of feature2tbl is 3 adjacent rectangles
@@ -357,38 +373,42 @@ def main():
 
     cascade = []
     fprSufficient = .30
-
+    temp = 0
+    pickleName = "cascade0"
     for createCascadeIndex in range(4):
         print("On cascade", createCascadeIndex)
 
         ntrain = len(iindices)
         scalar = float(1)/ntrain
         weights = [scalar for _ in range(ntrain)]
-        print("Weights are", weights)
         fpr = fprSufficient + 1
         boostedAgg = []
         while fpr > fprSufficient:
-
+            temp += 1
             weak = bestLearner(iimages, trainLabels, iindices, featuretbl, weights)
-            print(weak)
             error = weak[0]
             threshold = weak[1]
             ordinaryPolarity = weak[2]
             featureIndex = weak[3]
             alpha = computeAlpha(error)
-            weights = updateWeights(iimages, labels, iindices, featuretbl, weights, weak, alpha):
+            weights = updateWeights(iimages, trainLabels, iindices, featuretbl, weights, weak, alpha)
+            print("updated weights", weights)
             boostedAgg.append([[featureIndex, threshold, ordinaryPolarity], alpha])
 
             aggInfo = aggCatchAll(iimages, trainLabels, iindices, featuretbl, boostedAgg)
-            print(aggInfo)
+            print("Agg info is" , aggInfo)
             fpr = aggInfo[0]
-            if fpr > fprSufficient:
+            if fpr < fprSufficient:
                 theta = aggInfo[1]
                 cascade.append([boostedAgg, theta])
                 iindices = aggInfo[2]
+                pickleName = pickleName[:-1]
+                pickleName += str(createCascadeIndex)
+                pickleWrapper(pickleName, cascade)
+                
                 # break
 
-    pickleWrapper("cascade", cascade)
+    pickleWrapper(pickleName, cascade)
 
 if __name__ == "__main__":
     main()
