@@ -18,13 +18,19 @@ import pickle as pkl
 import math
 
 # $0 io
-def getSingleImage(filename):
+def getSingleImage(filename, xDim=64, yDim=64):
     f = Image.open(filename)
-    assert f.size == (64,64)
+
+    if xDim and yDim:
+        assert f.size == (xDim, yDim)
+    else:
+        sz = f.size
+        xDim = sz[0]
+        yDim = sz[1]
     # make b/w
     f = f.convert('L')
     result = np.array(f.getdata())
-    result = np.reshape(result, (64, 64))
+    result = np.reshape(result, (xDim, yDim))
     return result
     # alt methods:
     # pixelMatrx = f.load()
@@ -93,61 +99,231 @@ def splitBoxTwo(ix, iy, xWindow, yWindow, splitOnX):
 
     return feature
 
+
+# there exist 1,2,3,4, 1',2',3',4'
+# store 1,2,3 and 2',3',4'
+# ergo boxes are from feature elems [1 and 4] together with [3 and 6]
+# minus mid box 2 and 5
+def splitBoxThree(ix, iy, xWindow, yWindow, splitOnX):
+    xEnd = ix + xWindow
+    yEnd = iy + yWindow
+    feature = []
+
+    if splitOnX:
+        assert xWindow % 3 == 0
+        # Separated horizontally (perpendicular to vertical x axis)
+        xThird = int(xWindow/3)
+        xMid1 = ix + xThird
+        #xMid2 = ix + 2 * int(xWindow/3)
+        xMid2 = xMid1 + xThird
+
+        feature += [ix, iy]
+        feature += [xMid1, yEnd]
+
+        feature += [xMid1, iy]
+        feature += [xMid2, yEnd]
+
+        feature += [xMid2, iy]
+        feature += [xEnd, yEnd]
+
+    else:
+        assert yWindow % 3 == 0
+        yThird = int(yWindow/3)
+        yMid1 = iy + yThird
+        #xMid2 = ix + 2 * int(xWindow/3)
+        yMid2 = yMid1 + yThird
+
+        feature += [ix, iy]
+        feature += [xEnd, yMid1]
+
+        feature += [ix, yMid1]
+        feature += [xEnd, yMid2]
+
+        feature += [ix, yMid2]
+        feature += [xEnd, yEnd]
+
+    return feature
+
+# topleft, topmid, topright, midleft, midmid, midright, botleft, botmid, botright
+def splitBoxFour(ix, iy, xWindow, yWindow):
+    xEnd = ix + xWindow
+    yEnd = iy + yWindow
+    feature = []
+
+    assert yWindow % 2 == 0
+    yMid = iy + int(yWindow/2)
+
+    feature += [ix, iy]
+    feature += [ix, yMid]
+    feature += [ix, yEnd]
+
+    assert xWindow % 2 == 0
+    # Separated horizontally (perpendicular to vertical x axis)
+    xMid = ix + int(xWindow/2)
+
+    feature += [xMid, iy]
+    feature += [xMid, yMid]
+    feature += [xMid, yEnd]
+
+    feature += [xEnd, iy]
+    feature += [xEnd, yMid]
+    feature += [xEnd, yEnd]
+
+    return feature
+
+
+
+def splitBoxN(n, ix, iy, xWindow, yWindow, splitOnX):
+    if n == 4:
+        assert splitOnX == None
+        return splitBoxFour(ix, iy, xWindow, yWindow)
+    if n == 2:
+        return splitBoxTwo(ix, iy, xWindow, yWindow, splitOnX)
+    if n == 3:
+        return splitBoxThree(ix, iy, xWindow, yWindow, splitOnX)
+
 # The crux of operations
 # Responsible for sliding a certain sized window over all possible parts of img
-def slideTwoBoxesAcross(xLen, yLen, xWindow, yWindow, xStride=1, yStride=1):
+def slideNBoxesAcross(n, splitOnX, xLen, yLen, xWindow, yWindow, xStride=1, yStride=1):
     assert xLen >= xWindow >= xStride
     assert yLen >= yWindow >= yStride
-
     xRangeSize = xLen - xWindow
     yRangeSize = yLen - yWindow
 
     result = []
     for ix in range(0, xRangeSize, xStride):
         for iy in range(0, yRangeSize, yStride):
-            if xWindow % 2 == 0:
-                result.append(splitBoxTwo(ix, iy, xWindow, yWindow, True))
-            if yWindow % 2 == 0:
-                result.append(splitBoxTwo(ix, iy, xWindow, yWindow, False))
-    return result
+            result.append(splitBoxN(n, ix, iy, xWindow, yWindow, splitOnX))
+
+    tuples = []
+    for elem in result:
+            tuples.append([elem, n])
+
+    return tuples
+
 
 # ensures both window edge lengths are even numbers
 # the 'windows' in this program are the total window:
 # only specified in size, and cover the space of both rectangles in the feature
-def allTwoBoxFeatures(xLen, yLen):
+def allBoxFeatures(xLen, yLen):
     result = []
-    sizes = list(range(4, 25, 4)) + list(range(28, 64, 8))
-    print("len sizes", len(sizes))
+    sizes = list(range(4, 25, 2)) + list(range(28, 64, 4))
     for xWindow in sizes:
     #for xWindow in range(2, xLen, 2):
         for yWindow in sizes:
         #for yWindow in range(2, yLen, 1):
             #print("xy:", xWindow, yWindow)
-            result += slideTwoBoxesAcross(xLen, yLen, xWindow, yWindow, 4, 4)
+
+            if xWindow % 2 == 0:
+                result += slideNBoxesAcross(2, True, xLen, yLen, xWindow, yWindow)
+            if yWindow % 2 == 0:
+                result += slideNBoxesAcross(2, False, xLen, yLen, xWindow, yWindow)
+            if xWindow % 3 == 0:
+                result += slideNBoxesAcross(3, True, xLen, yLen, xWindow, yWindow)
+            if yWindow % 3 == 0:
+                result += slideNBoxesAcross(3, False, xLen, yLen, xWindow, yWindow)
+            if xWindow % 2 == 0 and yWindow % 2 == 0:
+                result += slideNBoxesAcross(4, None, xLen, yLen, xWindow, yWindow)
+
     return result
+
+def computeBox(image, x1, x2, y1, y2):
+    return image[x2][y2] + image[x1][y1] - image[x1][y2] - image[x2][y1]
+
+# computeFeature at n... cfn
+def cfnHelper(image, feature, nfeature):
+    if nfeature == 2:
+        return computeTwoBoxes(image, feature)
+    if nfeature == 3:
+        return computeThreeBoxes(image, feature)
+    if nfeature == 4:
+        return computeFourBoxes(image, feature)
 
 def computeFeature(iimages, imageIndex, featuretbl, featureIndex):
     image = iimages[imageIndex]
-    feature = featuretbl[featureIndex]
+    full = featuretbl[featureIndex]
+    feature = full[0]
+    nfeature = full[1]
+    return cfnHelper(image, feature, nfeature)
 
+# points stored as
+# 012
+# 345
+# 678
+# multiply all of those by 2, because x and y
+def computeFourBoxes(image, feature):
+    x1 = feature[0]
+    y1 = feature[1]
+    x2 = feature[8]
+    y2 = feature[9]
+    box1 = computeBox(image, x1, x2, y1, y2)
+
+    x1 = x2
+    y1 = y2
+    x2 = feature[16]
+    y2 = feature[17]
+    box4 = computeBox(image, x1, x2, y1, y2)
+
+    # top right
+    x1 = feature[2]
+    y1 = feature[3]
+    x2 = feature[10]
+    y2 = feature[11]
+    box2 = computeBox(image, x1, x2, y1, y2)
+
+    # bottom left
+    x1 = feature[6]
+    y1 = feature[7]
+    x2 = feature[14]
+    y2 = feature[15]
+    box3 = computeBox(image, x1, x2, y1, y2)
+
+    return box1 + box4 - box3 - box2
+
+def computeThreeBoxes(image, feature):
     x1 = feature[0]
     y1 = feature[1]
     x2 = feature[2]
     y2 = feature[3]
-    box1 = image[x2][y2] + image[x1][y1] - image[x1][y2] - image[x2][y1]
+    box1 = computeBox(image, x1, x2, y1, y2)
 
     x1 = feature[4]
     y1 = feature[5]
     x2 = feature[6]
     y2 = feature[7]
-    box2 = image[x2][y2] + image[x1][y1] - image[x1][y2] - image[x2][y1]
+    box2 = computeBox(image, x1, x2, y1, y2)
+
+    x1 = feature[8]
+    y1 = feature[9]
+    x2 = feature[10]
+    y2 = feature[11]
+    box3 = computeBox(image, x1, x2, y1, y2)
+
+    return box1 + box3 - box2
+
+def computeTwoBoxes(image, feature):
+    x1 = feature[0]
+    y1 = feature[1]
+    x2 = feature[2]
+    y2 = feature[3]
+    box1 = computeBox(image, x1, x2, y1, y2)
+
+    x1 = feature[4]
+    y1 = feature[5]
+    x2 = feature[6]
+    y2 = feature[7]
+    box2 = computeBox(image, x1, x2, y1, y2)
 
     return box2 - box1
 
 # general args: [iimages, labels, iindices], [featuretbl, featureindex], thresh, polarity
 
-# $3 prediction
+# $$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$
+# $$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$
+# $$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$
+# $$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$3 prediction
 
+# Stump predicts on a single image in iimages
 # Ordinarypolarity is a bool
 # given: a specific image, a [feature, threshold, polarity] aka weak-stump-classifier
 # returns: \pm 1, a label prediction
@@ -162,9 +338,10 @@ def predictWeak(iimages, imageIndex, featuretbl, classifier):
     return result
 
 # given: a specific image, and one boosted classifier, which is a list of [weak-stump, alpha]
-# returns: either every vote from each weak classifier,  or just \pm 1
+# returns: sum of scaled votes from each weak classifier
 def predictAgg(iimages, imageIndex, featuretbl, boostedClassifier):
     scaledVotes = []
+
     for elem in boostedClassifier:
         classifier = elem[0]
         alpha = elem[1]
@@ -191,12 +368,9 @@ def bestLearner(iimages, labels, iindices, featuretbl, weights):
     allFeatureValues = []
     # list of lists for each features best shot at a weak learner
     # contain error, value of j (separator), theta (threshold), ordinary polarity (bool)
-    print("In best learner, size of features is", nfeat)
 
     # Compute everything
     for jfeat in range(nfeat):
-        if jfeat % 2000 == 0:
-            print("Feature index for finding Best Learner", jfeat)
         eachImage = []
         for jim in iindices:
             vl = computeFeature(iimages, jim, featuretbl, jfeat)
@@ -206,14 +380,12 @@ def bestLearner(iimages, labels, iindices, featuretbl, weights):
 
     # For each feature: 1 sort images by performance, then 2 select threshold/polarity
     for jfeat in range(nfeat):
-        if jfeat % 2000 == 0:
-            print("Feature Index for finding Best Learner", jfeat)
         unsorted = np.array(allFeatureValues[jfeat])
         permutation = np.argsort(unsorted)
 
         permPosWeights = [(weights[index] if labels[index] == 1 else 0) for index in permutation]
-        pprime = [(weights[permutation[index]] if labels[permutation[index]] == 1 else 0) for index in range(len(permutation))]
-        assert permPosWeights == pprime
+        #pprime = [(weights[permutation[index]] if labels[permutation[index]] == 1 else 0) for index in range(len(permutation))]
+        #assert permPosWeights == pprime
         permNegWeights = [(weights[index] if labels[index] == -1 else 0) for index in permutation]
         permPosWeights = np.array(permPosWeights)
         permNegWeights = np.array(permNegWeights)
@@ -265,13 +437,17 @@ def bestLearner(iimages, labels, iindices, featuretbl, weights):
 def computeAlpha(errorValue):
     return math.log((1 - errorValue) / errorValue) / 2
 
+def assertWeightMargin(sweights, margin):
+    assert abs(sweights - 1) < margin
+
 #def updateWeights(weights, error, alpha, thresh, ordinaryPolarity, iimages, iindices, labels, featuretbl, featureIndex):
 # ordinary polarity is bool
 def updateWeights(iimages, labels, iindices, featuretbl, weights, weak, alpha):
     ntrain = len(weights)
     assert ntrain == len(iindices)
     print(sum(weights))
-    assert abs(sum(weights) - 1) < .04
+    margin = .8
+    assertWeightMargin(sum(weights), margin)
     #assert ntrain == len(iindices)
     error = weak[0]
     threshold = weak[1]
@@ -283,10 +459,9 @@ def updateWeights(iimages, labels, iindices, featuretbl, weights, weak, alpha):
     for i in range(ntrain):
         prediction = predictWeak(iimages, iindices[i], featuretbl, [featureIndex, threshold, ordinaryPolarity])
         correction = (1 if labels[iindices[i]] != prediction else -1)
-        print("Update weights: predicgtion", prediction)
         result.append(weights[i] * math.exp(alpha * correction) / z )
     print(sum(result))
-    assert abs(sum(result) - 1) < .04
+    assertWeightMargin(sum(weights), margin)
     return result
 
 # Decide whether we're done boosting, and will move on in the cascade
@@ -295,12 +470,12 @@ def aggCatchAll(iimages, labels, iindices, featuretbl, boostedClassifier):
     ntrain = len(iindices)
     predictions = [predictAgg(iimages, i, featuretbl, boostedClassifier) for i in iindices]
     print("Agg catch all: predictions", predictions)
-    print("Agg catch all: labels at iindices", [labels[i] for i in iindices])
     assert ntrain == len(predictions)
 
     # pp aka predicted positive
     # tp aka true positive
     tpIndices = [i for i in iindices if labels[i] == 1]
+    assert len(tpIndices) == len(iimages)/2
     tpPredictions = [predictions[i] for i in range(len(tpIndices))]
     # least confident
     confidenceSort = np.argsort(tpPredictions)
@@ -308,11 +483,11 @@ def aggCatchAll(iimages, labels, iindices, featuretbl, boostedClassifier):
     lcPositive = tpIndices[confidenceSort[0]]
     theta = tpPredictions[lcPositive] - (abs(tpPredictions[lcPositive]) * .04)
 
-    ppIndices = [ i for i in iindices if predictions[i] > theta ]
-    npp = len(ppIndices)
+    ppIndices = [ iindices[i] for i in range(ntrain) if predictions[i] > theta ]
+    ntn = len(iindices) - len(tpIndices)
     nfp = len([ i for i in ppIndices if labels[i] != 1])
     # len almost equiv to sum
-    fpr = nfp / npp
+    fpr = nfp / ntn
     return [fpr, theta, ppIndices]
 
 def pickleWrapper(filename, request=None):
@@ -330,10 +505,106 @@ def pickleWrapper(filename, request=None):
         except IOError:
             return False
 
-def main():
-    dev = True
-    devSize = 160
+def findFaces(iimage, featuretbl, cascade, xStride=128, yStride=128):
+    xWindow = len(iimage)
+    yWindow = len(iimage[0])
+    assert xWindow >= xStride
+    assert yWindow >= yStride
 
+    result = []
+    for ix in range(0, xWindow, xStride):
+        for iy in range(0, yWindow, yStride):
+            faceCoords = topFace(iimage, featuretbl, cascade, ix, iy, xStride, yStride)
+            if faceCoords:
+                result.append(faceCoords)
+
+    return result
+
+import time
+# find the absolutebest face within xWin x yWin
+# prevents exessive overlap: within this function, there is strictly none
+def topFace(iimage, featuretbl, cascade, ix, iy, xWindow, yWindow):
+    unsorted = []
+    frameSize = 64
+    for jx in range(ix, ix + xWindow - frameSize, 4):
+        for jy in range(iy, iy + yWindow - frameSize, 4):
+            val = cascadeValue(iimage, featuretbl, cascade, jx, jy, frameSize, frameSize)
+            unsorted.append([val, [jx, jy]])
+
+
+    # VERY weird out of order for these three prints ...
+    time.sleep(6)
+    unsortedValues = [xx[0] for xx in unsorted]
+    time.sleep(6)
+    permutation = np.argsort(unsortedValues)
+    time.sleep(6)
+    print("permute should be", permutation, "at topFace invoked with ixiy", ix, iy)
+    print("unsorted should be", unsorted)
+    assert len(permutation) > 0
+    maximum = permutation[-1]
+    print("max index", maximum)
+    coords = unsorted[maximum][1]
+    maxValue = unsorted[maximum][0]
+    print("the coords of face are", coords, "with value", maxValue)
+    # SLEEPING to fix
+
+
+    if maxValue > 0: # actually classified as  a face
+        return coords
+    return False
+
+def cascadeValue(iimage, featuretbl, cascade, ix, iy, xFrameSize, yFrameSize):
+    assert len(iimage) >= ix + xFrameSize
+    assert len(iimage[0]) >= iy + yFrameSize
+    cumulative = 0
+    for boosted in cascade:
+        boostedClassifer = boosted[0]
+        theta = boosted[1]
+        mini = np.array(iimage)
+        mini = mini[ix: ix + xFrameSize, iy: iy + yFrameSize]
+        pa = predictAgg([mini], 0, featuretbl, boostedClassifer)
+        if pa < theta:
+            return -1 # pa?
+        cumulative += pa
+    return cumulative
+
+
+def main():
+    runTestCase()
+
+def runTestCase():
+
+    pickleName = "featuretbl"
+    featuretbl = pickleWrapper(pickleName)
+    if featuretbl == False:
+        featuretbl = getFeatureTable()
+        pickleWrapper(pickleName, featuretbl)
+
+    pickleName = "cascade"
+    cascade = pickleWrapper(pickleName)
+    if cascade == False:
+        cascade = trainCascade(featuretbl)
+        pickleWrapper(pickleName, cascade)
+
+    print(cascade)
+    testCase = getSingleImage("data/class.jpg", None, None)
+    iitc = constructIntegralImage(testCase)
+    print(len(iitc), len(iitc[0]))
+    detections = findFaces(iitc, featuretbl, cascade)
+    print(len(detections), detections)
+
+def getFeatureTable():
+    return allBoxFeatures(64,64)
+
+def trainCascade(featuretbl):
+    dev = True
+    devSize = 700
+
+    # featuretbl
+    if dev:
+        featuretbl = [featuretbl[i] for i in range(len(featuretbl)) if i % 7 == 0]
+
+    # iimages
     trainLabels = [1 for _ in range((devSize if dev else 2000))] + [-1 for _ in range((devSize if dev else 2000))]
 
     pickleName = "iimages"
@@ -354,49 +625,36 @@ def main():
 
     # ideally this is feature1tbl
     #if not featuretbl = pickleWrapper(None, "featuretbl"):
-
-    pickleName = "featuretbl"
-    featuretbl = pickleWrapper(pickleName)
-    if featuretbl == False:
-        featuretbl = allTwoBoxFeatures(64,64)
-        pickleWrapper(pickleName, featuretbl)
-
-    devSize = len(featuretbl) # 40
-    if dev:
-        featuretbl = featuretbl[:40]
-
-    # element of feature1tbl is 2 adjacent rectangles
-    # element of feature2tbl is 3 adjacent rectangles
-    # element of feature3tbl is 2 pairs of diagonal rectangles
     # adjacent rectangles are of identical size and dimension
-    # store featuretypes as a third global var: values are either 0,1,2
-
     cascade = []
     fprSufficient = .30
-    temp = 0
+    niterations = 0
     pickleName = "cascade0"
-    for createCascadeIndex in range(4):
+    for createCascadeIndex in range(3):
         print("On cascade", createCascadeIndex)
+        print("Cascade is", cascade)
 
         ntrain = len(iindices)
         scalar = float(1)/ntrain
         weights = [scalar for _ in range(ntrain)]
         fpr = fprSufficient + 1
+
         boostedAgg = []
+
         while fpr > fprSufficient:
-            temp += 1
+            niterations += 1
             weak = bestLearner(iimages, trainLabels, iindices, featuretbl, weights)
+            print("Weak is", weak, "iteration number", niterations, "len iindices", len(iindices))
             error = weak[0]
             threshold = weak[1]
             ordinaryPolarity = weak[2]
             featureIndex = weak[3]
             alpha = computeAlpha(error)
             weights = updateWeights(iimages, trainLabels, iindices, featuretbl, weights, weak, alpha)
-            print("updated weights", weights)
             boostedAgg.append([[featureIndex, threshold, ordinaryPolarity], alpha])
-
+            print("Bossted agg is", boostedAgg)
             aggInfo = aggCatchAll(iimages, trainLabels, iindices, featuretbl, boostedAgg)
-            print("Agg info is" , aggInfo)
+            print("Agg info is", aggInfo)
             fpr = aggInfo[0]
             if fpr < fprSufficient:
                 theta = aggInfo[1]
@@ -405,10 +663,8 @@ def main():
                 pickleName = pickleName[:-1]
                 pickleName += str(createCascadeIndex)
                 pickleWrapper(pickleName, cascade)
-                
-                # break
 
-    pickleWrapper(pickleName, cascade)
+    return cascade
 
 if __name__ == "__main__":
     main()
