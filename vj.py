@@ -214,16 +214,19 @@ def allBoxFeatures(xLen, yLen):
         #for yWindow in range(2, yLen, 1):
             #print("xy:", xWindow, yWindow)
 
-            if xWindow % 2 == 0:
-                result += slideNBoxesAcross(2, True, xLen, yLen, xWindow, yWindow)
-            if yWindow % 2 == 0:
-                result += slideNBoxesAcross(2, False, xLen, yLen, xWindow, yWindow)
-            if xWindow % 3 == 0:
-                result += slideNBoxesAcross(3, True, xLen, yLen, xWindow, yWindow)
-            if yWindow % 3 == 0:
-                result += slideNBoxesAcross(3, False, xLen, yLen, xWindow, yWindow)
+            n = 2
+            if xWindow % n == 0:
+                result += slideNBoxesAcross(n, True, xLen, yLen, xWindow, yWindow, n, n)
+            if yWindow % n == 0:
+                result += slideNBoxesAcross(n, False, xLen, yLen, xWindow, yWindow, n, n)
+            n = 3
+            if xWindow % n == 0:
+                result += slideNBoxesAcross(n, True, xLen, yLen, xWindow, yWindow, n, n)
+            if yWindow % n == 0:
+                result += slideNBoxesAcross(n, False, xLen, yLen, xWindow, yWindow, n, n)
+            n = 4
             if xWindow % 2 == 0 and yWindow % 2 == 0:
-                result += slideNBoxesAcross(4, None, xLen, yLen, xWindow, yWindow)
+                result += slideNBoxesAcross(n, None, xLen, yLen, xWindow, yWindow, n, n)
 
     return result
 
@@ -368,6 +371,9 @@ def bestLearner(iimages, labels, iindices, featuretbl, weights):
 
     # Compute everything
     for jfeat in range(nfeat):
+        if jfeat % 20000 == 0:
+            print("compute for jfeat", jfeat)
+
         eachImage = []
         for jim in iindices:
             vl = computeFeature(iimages, jim, featuretbl, jfeat)
@@ -377,6 +383,8 @@ def bestLearner(iimages, labels, iindices, featuretbl, weights):
 
     # For each feature: 1 sort images by performance, then 2 select threshold/polarity
     for jfeat in range(nfeat):
+        if jfeat % 20000 == 0:
+            print("theta for jfeat", jfeat)
         unsorted = np.array(allFeatureValues[jfeat])
         permutation = np.argsort(unsorted)
 
@@ -595,7 +603,7 @@ def getFeatureTable():
 
 def trainCascade(featuretbl):
     dev = True
-    devSize = 700
+    devSize = 1200
 
     # featuretbl
     if dev:
