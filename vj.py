@@ -371,6 +371,8 @@ def bestLearner(iimages, labels, iindices, featuretbl, weights):
 
     # Compute everything
     for jfeat in range(nfeat):
+        if jfeat % 2000 == 0:
+            print("just computing value for feat", jfeat)
         eachImage = []
         for jim in iindices:
             vl = computeFeature(iimages, jim, featuretbl, jfeat)
@@ -396,6 +398,10 @@ def bestLearner(iimages, labels, iindices, featuretbl, weights):
         cacheNegative = sum(permNegWeights)
         leftPositive = 0
         leftNegative = 0
+
+        if jfeat % 2000 == 0:
+            print("determining theta for for feat", jfeat)
+
         for jim in range(ntrain):
             leftPositive += permPosWeights[jim]
             #leftPositive = sum(permPosWeights[:jim+1])
