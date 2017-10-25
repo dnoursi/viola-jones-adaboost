@@ -227,24 +227,21 @@ def allBoxFeatures(xLen, yLen):
 
     return result
 
-def computeBox(image, x1, x2, y1, y2):
-    return image[x2][y2] + image[x1][y1] - image[x1][y2] - image[x2][y1]
-
-# computeFeature at n... cfn
-def cfnHelper(image, feature, nfeature):
-    if nfeature == 2:
-        return computeTwoBoxes(image, feature)
-    if nfeature == 3:
-        return computeThreeBoxes(image, feature)
-    if nfeature == 4:
-        return computeFourBoxes(image, feature)
+#def computeBox(image, x1, x2, y1, y2):
+#    return image[x2][y2] + image[x1][y1] - image[x1][y2] - image[x2][y1]
 
 def computeFeature(iimages, imageIndex, featuretbl, featureIndex):
     image = iimages[imageIndex]
     full = featuretbl[featureIndex]
     feature = full[0]
     nfeature = full[1]
-    return cfnHelper(image, feature, nfeature)
+
+    if nfeature == 2:
+        return computeTwoBoxes(image, feature)
+    if nfeature == 3:
+        return computeThreeBoxes(image, feature)
+    if nfeature == 4:
+        return computeFourBoxes(image, feature)
 
 # points stored as
 # 012
@@ -256,27 +253,27 @@ def computeFourBoxes(image, feature):
     y1 = feature[1]
     x2 = feature[8]
     y2 = feature[9]
-    box1 = computeBox(image, x1, x2, y1, y2)
+    box1 = image[x2][y2] + image[x1][y1] - image[x1][y2] - image[x2][y1] # computeBox(image, x1, x2, y1, y2)
 
     x1 = x2
     y1 = y2
     x2 = feature[16]
     y2 = feature[17]
-    box4 = computeBox(image, x1, x2, y1, y2)
+    box4 = image[x2][y2] + image[x1][y1] - image[x1][y2] - image[x2][y1] # computeBox(image, x1, x2, y1, y2)
 
     # top right
     x1 = feature[2]
     y1 = feature[3]
     x2 = feature[10]
     y2 = feature[11]
-    box2 = computeBox(image, x1, x2, y1, y2)
+    box2 = image[x2][y2] + image[x1][y1] - image[x1][y2] - image[x2][y1] # computeBox(image, x1, x2, y1, y2)
 
     # bottom left
     x1 = feature[6]
     y1 = feature[7]
     x2 = feature[14]
     y2 = feature[15]
-    box3 = computeBox(image, x1, x2, y1, y2)
+    box3 = image[x2][y2] + image[x1][y1] - image[x1][y2] - image[x2][y1] # computeBox(image, x1, x2, y1, y2)
 
     return box1 + box4 - box3 - box2
 
@@ -285,19 +282,19 @@ def computeThreeBoxes(image, feature):
     y1 = feature[1]
     x2 = feature[2]
     y2 = feature[3]
-    box1 = computeBox(image, x1, x2, y1, y2)
+    box1 = image[x2][y2] + image[x1][y1] - image[x1][y2] - image[x2][y1] # computeBox(image, x1, x2, y1, y2)
 
     x1 = feature[4]
     y1 = feature[5]
     x2 = feature[6]
     y2 = feature[7]
-    box2 = computeBox(image, x1, x2, y1, y2)
+    box2 = image[x2][y2] + image[x1][y1] - image[x1][y2] - image[x2][y1] # computeBox(image, x1, x2, y1, y2)
 
     x1 = feature[8]
     y1 = feature[9]
     x2 = feature[10]
     y2 = feature[11]
-    box3 = computeBox(image, x1, x2, y1, y2)
+    box3 = image[x2][y2] + image[x1][y1] - image[x1][y2] - image[x2][y1] # computeBox(image, x1, x2, y1, y2)
 
     return box1 + box3 - box2
 
@@ -306,13 +303,13 @@ def computeTwoBoxes(image, feature):
     y1 = feature[1]
     x2 = feature[2]
     y2 = feature[3]
-    box1 = computeBox(image, x1, x2, y1, y2)
+    box1 = image[x2][y2] + image[x1][y1] - image[x1][y2] - image[x2][y1] # computeBox(image, x1, x2, y1, y2)
 
     x1 = feature[4]
     y1 = feature[5]
     x2 = feature[6]
     y2 = feature[7]
-    box2 = computeBox(image, x1, x2, y1, y2)
+    box2 = image[x2][y2] + image[x1][y1] - image[x1][y2] - image[x2][y1] # computeBox(image, x1, x2, y1, y2)
 
     return box2 - box1
 
@@ -371,8 +368,6 @@ def bestLearner(iimages, labels, iindices, featuretbl, weights):
 
     # Compute everything
     for jfeat in range(nfeat):
-        if jfeat % 2000 == 0:
-            print("just computing value for feat", jfeat)
         eachImage = []
         for jim in iindices:
             vl = computeFeature(iimages, jim, featuretbl, jfeat)
@@ -398,10 +393,6 @@ def bestLearner(iimages, labels, iindices, featuretbl, weights):
         cacheNegative = sum(permNegWeights)
         leftPositive = 0
         leftNegative = 0
-
-        if jfeat % 2000 == 0:
-            print("determining theta for for feat", jfeat)
-
         for jim in range(ntrain):
             leftPositive += permPosWeights[jim]
             #leftPositive = sum(permPosWeights[:jim+1])
@@ -643,10 +634,9 @@ def trainCascade(featuretbl):
         ntrain = len(iindices)
         scalar = float(1)/ntrain
         weights = [scalar for _ in range(ntrain)]
-        fpr = fprSufficient + 1
-
         boostedAgg = []
 
+        fpr = fprSufficient + 1
         while fpr > fprSufficient:
             niterations += 1
             weak = bestLearner(iimages, trainLabels, iindices, featuretbl, weights)
@@ -655,9 +645,13 @@ def trainCascade(featuretbl):
             threshold = weak[1]
             ordinaryPolarity = weak[2]
             featureIndex = weak[3]
+
             alpha = computeAlpha(error)
-            weights = updateWeights(iimages, trainLabels, iindices, featuretbl, weights, weak, alpha)
             boostedAgg.append([[featureIndex, threshold, ordinaryPolarity], alpha])
+
+            weights = updateWeights(iimages, trainLabels, iindices, featuretbl, weights, weak, alpha)
+
+
             print("Bossted agg is", boostedAgg)
             aggInfo = aggCatchAll(iimages, trainLabels, iindices, featuretbl, boostedAgg)
             print("Agg info is", aggInfo)
@@ -665,7 +659,9 @@ def trainCascade(featuretbl):
             if fpr < fprSufficient:
                 theta = aggInfo[1]
                 cascade.append([boostedAgg, theta])
+
                 iindices = aggInfo[2]
+
                 pickleName = pickleName[:-1]
                 pickleName += str(createCascadeIndex)
                 pickleWrapper(pickleName, cascade)
