@@ -569,6 +569,7 @@ def cascadeValue(iimage, featuretbl, cascade, ix, iy, xFrameSize, yFrameSize):
         mini = mini[ix: ix + xFrameSize, iy: iy + yFrameSize]
         pa = predictAgg([mini], 0, featuretbl, boostedClassifer)
         if pa < theta:
+            print("$ pa", pa, "$ theta", theta, "$ boosted", boosted, "cumul", cumulative)
             return -1 # pa?
         cumulative += pa
     return cumulative
@@ -595,6 +596,11 @@ def runTestCase():
     testCase = getSingleImage("data/class.jpg", None, None)
     iitc = constructIntegralImage(testCase)
     print(len(iitc), len(iitc[0]))
+
+    testing = topFace(iitc, featuretbl, cascade, 400, 330, 200, 200)
+    print(testing)
+    return
+
     detections = findFaces(iitc, featuretbl, cascade)
     print(len(detections), detections)
 
