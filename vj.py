@@ -3,21 +3,39 @@
 # Viola Jones
 # David Noursi Stat 277
 
-""" potential extensions
-
-variance-normalizing each image
-reflecting each face to double the amount of training data
-just more features (extra credit)
-
 """
-
+This code is divided into $ections
+$0 io
+$1 iimages
+$2 featuretbl
+$3 prediction
+$4 AdaBoost
+$5 Generally viola jones related code
+"""
 import numpy as np
 from PIL import Image
 import os
 import pickle as pkl
 import math
+import time
 
 # $0 io
+
+def pickleWrapper(filename, request=None):
+    if not filename.endswith(".pkl"):
+        filename += ".pkl"
+
+    if request:
+        with open(filename, "wb") as output:
+            pkl.dump(request, output)
+    else:
+        try:
+            with open(filename, "rb") as output:
+                result = pkl.load(output)
+                return result
+        except IOError:
+            return False
+
 def getSingleImage(filename, xDim=64, yDim=64):
     f = Image.open(filename)
 
@@ -27,8 +45,10 @@ def getSingleImage(filename, xDim=64, yDim=64):
         sz = f.size
         xDim = sz[0]
         yDim = sz[1]
+
     # make b/w
     f = f.convert('L')
+
     result = np.array(f.getdata())
     result = np.reshape(result, (xDim, yDim))
     return result
@@ -66,13 +86,13 @@ def constructIntegralImage(data):
 # $2 featuretbl
 
 """
-x is across rows
+Dimension x is across rows
 aka x is the first and outer index
-images are accesed as pixels[x][y]
 
-this means x is down
-and y is to the right
+images are accesed as pixels[x][y]
+this means x is down, and y is to the right
 """
+
 
 # the splitting of a window into two, either possible way
 # splitX is bool
@@ -171,8 +191,9 @@ def splitBoxFour(ix, iy, xWindow, yWindow):
 
     return feature
 
-
-
+# "Split box N"
+# Takes a box, splits it into sub boxes which are compared at a given feature
+# Return a single feature
 def splitBoxN(n, ix, iy, xWindow, yWindow, splitOnX):
     if n == 4:
         assert splitOnX == None
@@ -200,7 +221,6 @@ def slideNBoxesAcross(n, splitOnX, xLen, yLen, xWindow, yWindow, xStride=1, yStr
             tuples.append([elem, n])
 
     return tuples
-
 
 # ensures both window edge lengths are even numbers
 # the 'windows' in this program are the total window:
@@ -233,6 +253,7 @@ def allBoxFeatures(xLen, yLen):
 #def computeBox(image, x1, x2, y1, y2):
 #    return image[x2][y2] + image[x1][y1] - image[x1][y2] - image[x2][y1]
 
+# Given a feature index, evaluate the feature on an iimage
 def computeFeature(iimages, imageIndex, featuretbl, featureIndex):
     image = iimages[imageIndex]
     full = featuretbl[featureIndex]
@@ -316,14 +337,10 @@ def computeTwoBoxes(image, feature):
 
     return box2 - box1
 
-# general args: [iimages, labels, iindices], [featuretbl, featureindex], thresh, polarity
+# general args format: [iimages, labels, iindices], [featuretbl, featureindex], thresh, polarity misc
+# $3 prediction
 
-# $$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$
-# $$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$
-# $$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$
-# $$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$3 prediction
-
-# Stump predicts on a single image in iimages
+# Finds the prediction of a single stump on a single image in iimages
 # Ordinarypolarity is a bool
 # given: a specific image, a [feature, threshold, polarity] aka weak-stump-classifier
 # returns: \pm 1, a label prediction
@@ -337,17 +354,20 @@ def predictWeak(iimages, imageIndex, featuretbl, classifier):
     result *= (1 if polarity else -1)
     return result
 
+# Returns the sum of scaled results for a boosted sum of stumps
 # given: a specific image, and one boosted classifier, which is a list of [weak-stump, alpha]
 # returns: sum of scaled votes from each weak classifier
+# in general, ssv > 0 would imply being a face. But we use theta
 def predictAgg(iimages, imageIndex, featuretbl, boostedClassifier):
     scaledVotes = []
+    for stump in boostedClassifier:
+        classifier = stump[0]
+        alpha = stump[1]
 
-    for elem in boostedClassifier:
-        classifier = elem[0]
-        alpha = elem[1]
         featureIndex = classifier[0]
         threshold = classifier[1]
         polarity = classifier[2]
+
         prediction = predictWeak(iimages, imageIndex, featuretbl, classifier)
         scaledVotes.append(prediction * alpha)
     ssv = sum(scaledVotes)
@@ -355,24 +375,21 @@ def predictAgg(iimages, imageIndex, featuretbl, boostedClassifier):
     #return result
     return ssv
 
-# $4 adaboost
+# $4 AdaBoost
 
 # Best weak learner on the training data we currently care about
-def bestLearner(iimages, labels, iindices, featuretbl, weights):
+def bestNewStump(iimages, labels, iindices, featuretbl, weights):
     ntrain = len(iindices)
     assert ntrain == len(weights)
     flntrain = float(ntrain)
     nfeat = len(featuretbl)
-
-    # Find each features maximum utility, then pick the best of those
     allFeatureValues = []
     # list of lists for each features best shot at a weak learner
-    # contain error, value of j (separator), theta (threshold), ordinary polarity (bool)
 
-    # Compute everything
+    # First, compute everything
     for jfeat in range(nfeat):
         if jfeat % 20000 == 0:
-            print("compute for jfeat", jfeat)
+            print("Computing feature at jfeat", jfeat)
 
         eachImage = []
         for jim in iindices:
@@ -381,16 +398,17 @@ def bestLearner(iimages, labels, iindices, featuretbl, weights):
         allFeatureValues.append(eachImage)
     everyFeaturesBest = []
 
-    # For each feature: 1 sort images by performance, then 2 select threshold/polarity
+    # Now, find the best stumps. How to do this:
+    # For each feature, step 1 sort images by performance, then sttep 2 select threshold/polarity
     for jfeat in range(nfeat):
+
         if jfeat % 20000 == 0:
-            print("theta for jfeat", jfeat)
+            print("Finding theta at jfeat", jfeat)
+
         unsorted = np.array(allFeatureValues[jfeat])
         permutation = np.argsort(unsorted)
 
         permPosWeights = [(weights[index] if labels[index] == 1 else 0) for index in permutation]
-        #pprime = [(weights[permutation[index]] if labels[permutation[index]] == 1 else 0) for index in range(len(permutation))]
-        #assert permPosWeights == pprime
         permNegWeights = [(weights[index] if labels[index] == -1 else 0) for index in permutation]
         permPosWeights = np.array(permPosWeights)
         permNegWeights = np.array(permNegWeights)
@@ -403,13 +421,9 @@ def bestLearner(iimages, labels, iindices, featuretbl, weights):
         leftNegative = 0
         for jim in range(ntrain):
             leftPositive += permPosWeights[jim]
-            #leftPositive = sum(permPosWeights[:jim+1])
             leftNegative += permNegWeights[jim]
-            #leftNegative = sum(permNegWeights[:jim+1])
             rightPositive = cachePositive - leftPositive
-            #rightPositive = sum(permPosWeights[jim+1:])
             rightNegative = cacheNegative - leftNegative
-            #rightNegative = sum(permNegWeights[jim+1:])
 
             if leftPositive + rightNegative > leftNegative + rightPositive:
                 bestError = leftNegative + rightPositive
@@ -417,26 +431,21 @@ def bestLearner(iimages, labels, iindices, featuretbl, weights):
             else:
                 bestError = leftPositive + rightNegative
                 ordinaryPolarity = True
-
-            #bestError /= flntrain
             imageErrors.append([bestError, jim, ordinaryPolarity, jfeat])
 
+        # Now, find the best division for this feature
         bestErrorSort = np.argsort([x[0] for x in imageErrors])
         bestErrorIndex = bestErrorSort[0]
-        #print(bestErrorIndex)
         jthresh = imageErrors[bestErrorIndex][1]
         thresh = (unsorted[permutation[jthresh]])#+ unsorted[permutation[jthresh+1]]) * float(1)/2
         everyFeaturesBest.append([imageErrors[bestErrorIndex], thresh])
 
-    print(everyFeaturesBest)
-    bestClassifierSort = np.argsort([x[0][0] for x in everyFeaturesBest])
-    bestClassifierIndex = bestClassifierSort[0]
-    print(bestClassifierIndex)
-
+    # Now, pick out the feature which was the best
+    bestClassifierIndex = np.argsort([x[0][0] for x in everyFeaturesBest])[0]
     result = everyFeaturesBest[bestClassifierIndex] # [err, splitimageindex, polarity, feature index] ,  thresh *@ 1
     result.append(result[0][2]) # polarity *@ 2
     result.append(result[0][3]) # feat index *@ 3
-    result[0] =  result[0][0] # error @ 0
+    result[0] =  result[0][0] # error *@ 0
     return result
 
 def computeAlpha(errorValue):
@@ -445,12 +454,10 @@ def computeAlpha(errorValue):
 def assertWeightMargin(sweights, margin):
     assert abs(sweights - 1) < margin
 
-#def updateWeights(weights, error, alpha, thresh, ordinaryPolarity, iimages, iindices, labels, featuretbl, featureIndex):
 # ordinary polarity is bool
 def updateWeights(iimages, labels, iindices, featuretbl, weights, weak, alpha):
     ntrain = len(weights)
     assert ntrain == len(iindices)
-    print(sum(weights))
     margin = .8
     assertWeightMargin(sum(weights), margin)
     #assert ntrain == len(iindices)
@@ -459,56 +466,19 @@ def updateWeights(iimages, labels, iindices, featuretbl, weights, weak, alpha):
     ordinaryPolarity = weak[2]
     featureIndex = weak[3]
 
+    # z is the scaling factor
     z = 2 * (( error * (1 - error)) ** .5)
     result = []
     for i in range(ntrain):
         prediction = predictWeak(iimages, iindices[i], featuretbl, [featureIndex, threshold, ordinaryPolarity])
         correction = (1 if labels[iindices[i]] != prediction else -1)
         result.append(weights[i] * math.exp(alpha * correction) / z )
-    print(sum(result))
     assertWeightMargin(sum(weights), margin)
     return result
 
-# Decide whether we're done boosting, and will move on in the cascade
-# aka: optiize theta satisfying DR=100%, then return theta and frp at this theta
-def aggCatchAll(iimages, labels, iindices, featuretbl, boostedClassifier):
-    ntrain = len(iindices)
-    predictions = [predictAgg(iimages, i, featuretbl, boostedClassifier) for i in iindices]
-    print("Agg catch all: predictions", predictions)
-    assert ntrain == len(predictions)
-
-    # pp aka predicted positive
-    # tp aka true positive
-    tpIndices = [i for i in iindices if labels[i] == 1]
-    assert len(tpIndices) == len(iimages)/2
-    tpPredictions = [predictions[i] for i in range(len(tpIndices))]
-    # least confident
-    confidenceSort = np.argsort(tpPredictions)
-    print(confidenceSort, tpIndices, "oof")
-    lcPositive = tpIndices[confidenceSort[0]]
-    theta = tpPredictions[lcPositive] - (abs(tpPredictions[lcPositive]) * .04)
-
-    ppIndices = [ iindices[i] for i in range(ntrain) if predictions[i] > theta ]
-    ntn = len(iindices) - len(tpIndices)
-    nfp = len([ i for i in ppIndices if labels[i] != 1])
-    # len almost equiv to sum
-    fpr = nfp / ntn
-    return [fpr, theta, ppIndices]
-
-def pickleWrapper(filename, request=None):
-    if not filename.endswith(".pkl"):
-        filename += ".pkl"
-
-    if request:
-        with open(filename, "wb") as output:
-            pkl.dump(request, output)
-    else:
-        try:
-            with open(filename, "rb") as output:
-                result = pkl.load(output)
-                return result
-        except IOError:
-            return False
+# $5 Viola Jones code
+# The first part of this code uses the cascade to evaluate new images
+# The rest of the code is miscellany, main(), etc
 
 def findFaces(iimage, featuretbl, cascade, xStride=128, yStride=128):
     xWindow = len(iimage)
@@ -525,9 +495,8 @@ def findFaces(iimage, featuretbl, cascade, xStride=128, yStride=128):
 
     return result
 
-import time
-# find the absolutebest face within xWin x yWin
-# prevents exessive overlap: within this function, there is strictly none
+# find the absolute best face within xWin x yWin
+# prevents exessive overlap: within this function, there is strictly no overlap
 def topFace(iimage, featuretbl, cascade, ix, iy, xWindow, yWindow):
     unsorted = []
     frameSize = 64
@@ -537,27 +506,23 @@ def topFace(iimage, featuretbl, cascade, ix, iy, xWindow, yWindow):
             unsorted.append([val, [jx, jy]])
 
 
-    # VERY weird out of order for these three prints ...
+    # very weird out of order for these three prints ...
     time.sleep(6)
     unsortedValues = [xx[0] for xx in unsorted]
     time.sleep(6)
     permutation = np.argsort(unsortedValues)
     time.sleep(6)
-    print("permute should be", permutation, "at topFace invoked with ixiy", ix, iy)
-    print("unsorted should be", unsorted)
+
     assert len(permutation) > 0
     maximum = permutation[-1]
-    print("max index", maximum)
     coords = unsorted[maximum][1]
     maxValue = unsorted[maximum][0]
-    print("the coords of face are", coords, "with value", maxValue)
-    # SLEEPING to fix
-
 
     if maxValue > 0: # actually classified as  a face
         return coords
     return False
 
+# Evaluate the cascade on an iimage
 def cascadeValue(iimage, featuretbl, cascade, ix, iy, xFrameSize, yFrameSize):
     assert len(iimage) >= ix + xFrameSize
     assert len(iimage[0]) >= iy + yFrameSize
@@ -565,48 +530,71 @@ def cascadeValue(iimage, featuretbl, cascade, ix, iy, xFrameSize, yFrameSize):
     for boosted in cascade:
         boostedClassifer = boosted[0]
         theta = boosted[1]
+
         mini = np.array(iimage)
         mini = mini[ix: ix + xFrameSize, iy: iy + yFrameSize]
         pa = predictAgg([mini], 0, featuretbl, boostedClassifer)
         if pa < theta:
-            print("$ pa", pa, "$ theta", theta, "$ boosted", boosted, "cumul", cumulative)
-            return -1 # pa?
+            print("fail cascade with values: pa", pa, "theta", theta, "boosted", boosted, "cumul", cumulative)
+            return -1
         cumulative += pa
     return cumulative
 
+# Decide whether we're done boosting, and will move on in the cascade
+# aka: optimize theta s.t. DR=100%, then return fpr at this theta
+def cascadeFprInfo(iimages, labels, iindices, featuretbl, boostedClassifier):
+    ntrain = len(iindices)
+    predictions = [predictAgg(iimages, i, featuretbl, boostedClassifier) for i in iindices]
+    print("Agg catch all: predictions", predictions)
+    assert ntrain == len(predictions)
+
+    # pp aka predicted positive
+    # tp aka true positive
+    tpIndices = [i for i in iindices if labels[i] == 1]
+    assert len(tpIndices) == len(iimages)/2
+    # almost hacky, but true positives are always at the beginning of the iimages
+    tpPredictions = [predictions[i] for i in range(len(tpIndices))]
+
+    # we set theta by considering the least confident true positive (tp)
+    confidenceSort = np.argsort(tpPredictions)
+    lcPositive = tpIndices[confidenceSort[0]]
+    theta = tpPredictions[lcPositive] - .001 # (abs(tpPredictions[lcPositive]) * .04)
+
+    ppIndices = [ iindices[i] for i in range(ntrain) if predictions[i] > theta ]
+    ntn = len(iindices) - len(tpIndices)
+    nfp = len([ i for i in ppIndices if labels[i] != 1])
+    fpr = nfp / ntn
+    return [fpr, theta, ppIndices]
 
 def main():
     runTestCase()
 
+# test case is classdotjpeg
 def runTestCase():
-
     pickleName = "featuretbl"
+
+    # Need featuretbl
     featuretbl = pickleWrapper(pickleName)
     if featuretbl == False:
         featuretbl = getFeatureTable()
         pickleWrapper(pickleName, featuretbl)
 
+    # Need cascade
     pickleName = "cascade"
     cascade = pickleWrapper(pickleName)
     if cascade == False:
         cascade = trainCascade(featuretbl)
         pickleWrapper(pickleName, cascade)
 
-    print(cascade)
     testCase = getSingleImage("data/class.jpg", None, None)
     iitc = constructIntegralImage(testCase)
-    print(len(iitc), len(iitc[0]))
-
-    testing = topFace(iitc, featuretbl, cascade, 400, 330, 200, 200)
-    print(testing)
-    return
-
     detections = findFaces(iitc, featuretbl, cascade)
-    print(len(detections), detections)
+    print("detections", len(detections), detections)
 
 def getFeatureTable():
     return allBoxFeatures(64,64)
 
+# Create a full cascade
 def trainCascade(featuretbl):
     dev = True
     devSize = 1200
@@ -633,28 +621,31 @@ def trainCascade(featuretbl):
         pickleWrapper(pickleName, iimages)
 
     iindices = list(range(len(iimages)))
-
-    # ideally this is feature1tbl
-    #if not featuretbl = pickleWrapper(None, "featuretbl"):
-    # adjacent rectangles are of identical size and dimension
     cascade = []
     fprSufficient = .30
     niterations = 0
     pickleName = "cascade0"
-    for createCascadeIndex in range(3):
-        print("On cascade", createCascadeIndex)
-        print("Cascade is", cascade)
 
+    # Each fpr is < .3
+    # So three layers have error rate < .3**3 ~ .03
+    # Also, I didn't have hella time to train
+    for createCascadeIndex in range(3):
+        print("On cascade number", createCascadeIndex, "cascade is", cascade)
         ntrain = len(iindices)
         scalar = float(1)/ntrain
         weights = [scalar for _ in range(ntrain)]
         boostedAgg = []
 
         fpr = fprSufficient + 1
+
+        # While the current boosted learners has an excessive fpr
         while fpr > fprSufficient:
             niterations += 1
-            weak = bestLearner(iimages, trainLabels, iindices, featuretbl, weights)
+
+            # Find the best new learner, right now, gives iindices and weights
+            weak = bestNewStump(iimages, trainLabels, iindices, featuretbl, weights)
             print("Weak is", weak, "iteration number", niterations, "len iindices", len(iindices))
+
             error = weak[0]
             threshold = weak[1]
             ordinaryPolarity = weak[2]
@@ -665,15 +656,17 @@ def trainCascade(featuretbl):
 
             weights = updateWeights(iimages, trainLabels, iindices, featuretbl, weights, weak, alpha)
 
-
             print("Bossted agg is", boostedAgg)
-            aggInfo = aggCatchAll(iimages, trainLabels, iindices, featuretbl, boostedAgg)
+            aggInfo = cascadeFprInfo(iimages, trainLabels, iindices, featuretbl, boostedAgg)
             print("Agg info is", aggInfo)
+
             fpr = aggInfo[0]
             if fpr < fprSufficient:
+                # Done with this boosted classifier!
                 theta = aggInfo[1]
                 cascade.append([boostedAgg, theta])
 
+                # Only train on those images which proceed beyond this stage of the cascade
                 iindices = aggInfo[2]
 
                 pickleName = pickleName[:-1]
